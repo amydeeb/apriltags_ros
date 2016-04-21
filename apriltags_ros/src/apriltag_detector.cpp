@@ -61,6 +61,7 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const senso
   double fy = cam_info->K[4];
   double px = cam_info->K[2];
   double py = cam_info->K[5];
+  double ErrorEst = 0;
 
   if(!sensor_frame_id_.empty())
     cv_ptr->header.frame_id = sensor_frame_id_;
@@ -79,7 +80,7 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const senso
     double tag_size = description.size();
 
     detection.draw(cv_ptr->image);
-    Eigen::Matrix4d transform = detection.getRelativeTransform(tag_size, fx, fy, px, py);
+    Eigen::Matrix4d transform = detection.getRelativeTransform(tag_size, fx, fy, px, py, ErrorEst);
     Eigen::Matrix3d rot = transform.block(0,0,3,3);
     Eigen::Quaternion<double> rot_quaternion = Eigen::Quaternion<double>(rot);
 
@@ -97,6 +98,7 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const senso
     tag_detection.pose = tag_pose;
     tag_detection.id = detection.id;
     tag_detection.size = tag_size;
+    tag_detection.errorEst = ErrorEst;
     tag_detection_array.detections.push_back(tag_detection);
     tag_pose_array.poses.push_back(tag_pose.pose);
 

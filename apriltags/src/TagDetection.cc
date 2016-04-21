@@ -3,6 +3,8 @@
 
 #include "TagDetection.h"
 #include "MathUtil.h"
+#include <stdio.h>
+#include <math.h> 
 
 #ifdef PLATFORM_APERIOS
 //missing/broken isnan
@@ -73,7 +75,7 @@ bool TagDetection::overlapsTooMuch(const TagDetection &other) const {
   return ( dist < radius );
 }
 
-Eigen::Matrix4d TagDetection::getRelativeTransform(double tag_size, double fx, double fy, double px, double py) const {
+Eigen::Matrix4d TagDetection::getRelativeTransform(double tag_size, double fx, double fy, double px, double py, double &ErrorEst) const {
   std::vector<cv::Point3f> objPts;
   std::vector<cv::Point2f> imgPts;
   double s = tag_size/2.;
@@ -103,6 +105,40 @@ Eigen::Matrix4d TagDetection::getRelativeTransform(double tag_size, double fx, d
   Eigen::Matrix3d wRo;
   wRo << r(0,0), r(0,1), r(0,2), r(1,0), r(1,1), r(1,2), r(2,0), r(2,1), r(2,2);
 
+  //Calculate error of homography matrix
+  double ratio = tvec.at<double>(2);
+  Eigen::Matrix3d P, E, Hn, Hn_est;
+  P << fx, 0, 0,
+       0, fy, 0,
+       0, 0,  1;
+  E << r(0,0), r(0,1), tvec.at<double>(0),
+       r(1,0), r(1,1), tvec.at<double>(1),
+       r(2,0), r(2,1), tvec.at<double>(2);
+  Hn = P*E/ratio;
+
+
+  std::vector<cv::Point2f> sPts;
+  std::vector<cv::Point2f> dPts;
+  for (int i=0; i<4; i++) {
+    dPts.push_back(cv::Point2f((p[i].first - px), (p[i].second - py)));
+  }
+  sPts.push_back(cv::Point2f(-s,-s));
+  sPts.push_back(cv::Point2f( s,-s));
+  sPts.push_back(cv::Point2f( s, s));
+  sPts.push_back(cv::Point2f(-s, s));
+
+  cv::Mat homography = cv::findHomography(sPts,dPts);
+
+  for (int i=0; i<3; i++) {
+    for (int j=0; j<3; j++) {
+      Hn_est(i,j) = homography.at<double>(i,j);
+    }
+  }
+
+  E = Hn_est - Hn;
+  Eigen::Matrix3d E_sq = E*E.adjoint();
+  ErrorEst = sqrt(E_sq.trace());
+
   Eigen::Matrix4d T; 
   T.topLeftCorner(3,3) = wRo;
   T.col(3).head(3) << tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2);
@@ -113,8 +149,9 @@ Eigen::Matrix4d TagDetection::getRelativeTransform(double tag_size, double fx, d
 
 void TagDetection::getRelativeTranslationRotation(double tag_size, double fx, double fy, double px, double py,
                                                   Eigen::Vector3d& trans, Eigen::Matrix3d& rot) const {
+  double ErrorEst;
   Eigen::Matrix4d T =
-    getRelativeTransform(tag_size, fx, fy, px, py);
+    getRelativeTransform(tag_size, fx, fy, px, py, ErrorEst);
 
   // converting from camera frame (z forward, x right, y down) to
   // object frame (x forward, y left, z up)
